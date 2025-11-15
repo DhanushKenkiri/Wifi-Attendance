@@ -1,0 +1,65 @@
+{
+  "host": "0.0.0.0",
+  "portal_ip": "192.168.137.1",
+  "port": 8080,
+  "debug": true,
+  "use_reloader": false,
+  "force_https": false,
+  "firewall": {
+    "enabled": true,
+    "rule_prefix": "UniNetAttendance"
+  },
+  "data_source": "sqlite",
+  "sqlite": {
+    "db_path": "data/portal.db",
+    "seed_demo_data": false
+  },
+  "session": {
+    "flask_secret_key": "change-me-in-production",
+    "lifetime_minutes": 180,
+    "secure_cookie": false
+  },
+  "allowed_origins": [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://localhost:3000"
+  ],
+  "allowed_domains": [
+    "firebaseio.com",
+    "googleapis.com",
+    "gstatic.com",
+    "firebase.google.com"
+  ],
+  "captive_dns": {
+    "enabled": true,
+    "listen_address": "0.0.0.0",
+    "listen_port": 53,
+    "portal_ip": "192.168.137.1",
+    "upstream_servers": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "bypass_domains": [
+      "firebaseio.com",
+      "googleapis.com",
+      "gstatic.com",
+      "firebase.google.com"
+    ],
+    "force_portal_domains": [
+      "captive.apple.com",
+      "connectivitycheck.gstatic.com",
+      "clients3.google.com",
+      "clients4.google.com",
+      "clients5.google.com",
+      "msftconnecttest.com",
+      "msftncsi.com",
+      "detectportal.firefox.com",
+      "network-test.debian.org",
+      "wifi.apple.com"
+    ],
+      "log_queries": false,
+      "auto_grant_on_connect": false,
+      "auto_grant_student_id": "auto"
+  }
+}

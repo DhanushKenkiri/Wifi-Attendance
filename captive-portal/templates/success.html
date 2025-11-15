@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}Success · Student Attendance Portal{% endblock %}
+{% block page_id %}success{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Attendance recorded</h1>
+  <p class="info-box">Thank you. Your attendance has been recorded successfully.</p>
+  {% if data %}
+  <table class="table" style="margin-top:1.5rem;">
+    <tr>
+      <td><strong>Student</strong></td>
+      <td>{{ data.name }}</td>
+    </tr>
+    <tr>
+      <td><strong>Subject</strong></td>
+      <td>{{ data.subject or 'Class session' }}</td>
+    </tr>
+    <tr>
+      <td><strong>Timestamp</strong></td>
+      <td>{{ data.markedAt }}</td>
+    </tr>
+    <tr>
+      <td><strong>Code</strong></td>
+      <td>{{ data.code }}</td>
+    </tr>
+    <tr>
+      <td><strong>Marked via</strong></td>
+      <td>{{ data.markedVia or 'Captive Portal' }}</td>
+    </tr>
+  </table>
+  {% endif %}
+  <div style="margin-top:2rem;display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;">
+    <a class="btn" href="{{ url_for('verify_code') }}">Mark another class</a>
+    <a class="btn" href="/">Return home</a>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}Verify Code · Student Attendance Portal{% endblock %}
+{% block page_id %}verify{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Enter the 6-digit code</h1>
+  <p>Ask your instructor for the current attendance code and enter it below.</p>
+  <form id="verify-form" autocomplete="off" style="margin-top:2rem;display:flex;flex-direction:column;gap:1.5rem;">
+    <div class="code-inputs">
+      {% for _ in range(6) %}
+      <input type="text" inputmode="numeric" maxlength="1" aria-label="Code digit {{ loop.index }}" required />
+      {% endfor %}
+    </div>
+    <div id="verify-error" class="alert" hidden></div>
+    <button type="submit" class="btn">Verify code</button>
+  </form>
+  <div class="info-box" id="help">
+    Codes expire after a few minutes for security. If the code fails, ask your instructor to generate a fresh one.
+  </div>
+</section>
+{% endblock %}

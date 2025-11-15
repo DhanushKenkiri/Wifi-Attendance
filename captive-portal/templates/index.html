@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Welcome · Student Attendance Portal{% endblock %}
+{% block page_id %}index{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Welcome to the attendance portal</h1>
+  <p>
+    Connect to the UniNet Wi-Fi hotspot and follow the guided steps to validate the classroom code, authenticate
+    with your university credentials, and mark attendance.
+  </p>
+  <p class="info-box">
+    Important: you will not have general internet access until your attendance is confirmed.
+  </p>
+  <div style="display:flex;gap:1rem;flex-wrap:wrap;justify-content:center;margin-top:2rem;">
+    <a class="btn" href="{{ url_for('verify_code') }}">Start attendance flow</a>
+    <a class="btn" href="{{ url_for('verify_code') }}#help" style="background:linear-gradient(135deg,var(--accent-500),var(--accent-600));">Need help?</a>
+  </div>
+</section>
+{% endblock %}

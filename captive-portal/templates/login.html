@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}Student Login · Student Attendance Portal{% endblock %}
+{% block page_id %}login{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Authenticate to continue</h1>
+  <p>Use your university roll number and password. Only active students can access this portal.</p>
+  {% if code_data %}
+  <div class="info-box">
+    <strong>Class:</strong> {{ code_data.subject or 'Class session' }}<br />
+    <strong>Instructor:</strong> {{ code_data.teacherName or 'Unknown' }}<br />
+    <strong>Code:</strong> {{ code_data.code }}
+  </div>
+  {% endif %}
+  <form id="login-form" style="margin-top:2rem;display:flex;flex-direction:column;gap:1.5rem;">
+    <div class="field">
+      <label for="roll-number">Roll number</label>
+      <input id="roll-number" name="rollNumber" type="text" placeholder="22mc123" autocomplete="username" required />
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+    </div>
+    <div id="login-error" class="alert" hidden></div>
+    <button type="submit" class="btn">Sign in and continue</button>
+  </form>
+</section>
+{% endblock %}

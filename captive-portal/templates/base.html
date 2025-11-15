@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Student Attendance Portal{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    {% block head %}{% endblock %}
+  </head>
+  <body data-page="{% block page_id %}{% endblock %}">
+    <div class="container">
+      <header class="hero">
+        <img src="{{ url_for('static', filename='assets/logo.svg') }}" alt="Portal logo" class="hero-logo" />
+        <p class="success-badge">University Network Portal</p>
+      </header>
+      {% block content %}{% endblock %}
+      <footer class="footer-text">
+        &copy; {{ current_year }} Student Attendance Portal
+      </footer>
+    </div>
+    <script src="{{ url_for('static', filename='js/main.js') }}" defer></script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

@@ -1,0 +1,80 @@
+# OS and editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.orig
+.idea/
+.vscode/
+*.code-workspace
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.python-version
+.venv/
+venv/
+ENV/
+env/
+.build/
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+.tox/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+site/
+.mypy_cache/
+.dmypy.json
+.pyre/
+
+# Local data artifacts
+captive-portal/data/*.db
+captive-portal/data/*.sqlite
+captive-portal/data/*.sqlite3
+captive-portal/config/*.bak
+
+# Node / Frontend
+node_modules/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store?
+
+# Build outputs
+web-app/dist/
+web-app/.vite/
+teacher-dashboard/dist/
+teacher-dashboard/.vite/
+
+# Env and secrets
+*.env
+*.env.*
+.env.local
+.env.development
+.env.production
+.env.test
+firebase-debug.log
+
+# Logs
+*.log
+logs/
+
+# Coverage / testing
+lcov.info
+
+# Windows specific
+Desktop.ini
+$RECYCLE.BIN/
+
+# Misc
+*.tmp
+*.temp
+~$*
