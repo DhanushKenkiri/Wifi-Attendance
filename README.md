@@ -20,69 +20,484 @@ This README expands setup, architecture, data-flow diagrams, operational runbook
 
 ## High-level architecture
 
-Inline component diagram (simplified):
+### System Component Diagram
 
-<svg width="900" height="320" viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <style> .box{fill:#fff;stroke:#cbd5e1;stroke-width:1.5;rx:10;}.title{font:700 14px/1.2 sans-serif;fill:#0f172a}.label{font:400 12px/1.2 sans-serif;fill:#334155}</style>
-  </defs>
-  <rect x="24" y="24" width="220" height="80" class="box" rx="8"/>
-  <text x="36" y="46" class="title">Clients (phones/laptops)</text>
-  <text x="36" y="66" class="label">Wi‑Fi users visiting a URL</text>
-
-  <rect x="300" y="18" width="240" height="116" class="box" rx="8"/>
-  <text x="312" y="40" class="title">Captive Portal (Flask)</text>
-  <text x="312" y="62" class="label">/verify, /login, /mark-attendance, /api/face-capture</text>
-
-  <rect x="580" y="24" width="280" height="120" class="box" rx="8"/>
-  <text x="592" y="46" class="title">Local Services</text>
-  <text x="592" y="66" class="label">SQLite DB (`data/portal.db`)</text>
-  <text x="592" y="84" class="label">Face images: `data/faces/`</text>
-
-  <line x1="244" y1="64" x2="300" y2="64" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="540" y1="64" x2="580" y2="64" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
-
-  <defs>
-    <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-      <path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/>
-    </marker>
-  </defs>
-
-  <rect x="300" y="150" width="240" height="120" class="box" rx="8"/>
-  <text x="312" y="172" class="title">Optional Cloud</text>
-  <text x="312" y="192" class="label">Firebase (cloud sync, user store)</text>
-
-  <line x1="420" y1="134" x2="420" y2="150" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arrow)"/>
-</svg>
+```mermaid
+graph TB
+    subgraph Clients["Client Devices"]
+        Phone["📱 Smartphones"]
+        Laptop["💻 Laptops"]
+    end
+    
+    subgraph Portal["Captive Portal Server (Flask)"]
+        Web[("Web Routes<br/>/verify<br/>/login<br/>/mark-attendance")]
+        API[("API Endpoints<br/>/api/face-capture<br/>/api/grant-access")]
+        FaceEngine["OpenCV Face Detector"]
+    end
+    
+    subgraph Storage["Local Storage"]
+        SQLite[("SQLite DB<br/>data/portal.db")]
+        FaceStore[("Face Images<br/>data/faces/")]
+    end
+    
+    subgraph Cloud["Optional Cloud Services"]
+        Firebase[("Firebase<br/>Realtime DB")]
+    end
+    
+    subgraph Network["Network Layer"]
+        DNS["DNS Redirector<br/>(Port 53)"]
+        Firewall["Windows Firewall<br/>Rules Engine"]
+    end
+    
+    Phone --> DNS
+    Laptop --> DNS
+    DNS --> Web
+    Web --> API
+    API --> FaceEngine
+    FaceEngine --> FaceStore
+    Web --> SQLite
+    API --> SQLite
+    Portal -.->|Optional| Firebase
+    API --> Firewall
+    
+    style Portal fill:#e0f2fe
+    style Storage fill:#fef3c7
+    style Cloud fill:#ddd6fe
+    style Network fill:#fecdd3
+```
 
 ## Sequence flow (student check-in)
 
-Inline sequence diagram for the student check-in flow:
+### Complete Attendance Flow
 
-<svg width="900" height="220" viewBox="0 0 900 220" xmlns="http://www.w3.org/2000/svg">
-  <style> text{font:12px sans-serif;fill:#0f172a} .lane{stroke:#e2e8f0;stroke-width:1} .box{fill:#fff;stroke:#cbd5e1;stroke-width:1.2}</style>
-  <text x="40" y="28">Client</text>
-  <text x="300" y="28">Captive Portal</text>
-  <text x="620" y="28">Local DB/Face Store</text>
+```mermaid
+sequenceDiagram
+    participant Client as 📱 Client Device
+    participant DNS as DNS Redirector
+    participant Portal as Captive Portal
+    participant Camera as Device Camera
+    participant FaceEngine as Face Detector
+    participant DB as SQLite DB
+    participant Firewall as Windows Firewall
+    
+    Client->>DNS: HTTP request to any domain
+    DNS->>Client: Redirect to 192.168.137.1/verify
+    
+    Client->>Portal: GET /verify
+    Portal->>Client: Show code entry form
+    
+    Client->>Portal: POST /verify {code: "123456"}
+    Portal->>DB: Verify attendance code
+    DB-->>Portal: Code valid, store in session
+    Portal->>Client: Redirect to /login
+    
+    Client->>Portal: GET /login
+    Portal->>Client: Show login + face capture UI
+    
+    Note over Client,Camera: Face Capture Phase
+    Client->>Camera: Request camera access
+    Camera-->>Client: Video stream active
+    Client->>Portal: POST /api/face-capture {imageData, studentId}
+    Portal->>FaceEngine: Detect faces in image
+    FaceEngine->>FaceEngine: Run Haar Cascade detector
+    
+    alt Face detected
+        FaceEngine-->>Portal: Face found (count: 1)
+        Portal->>DB: INSERT face_captures (student_id, image_path, detected_faces)
+        DB-->>Portal: Capture ID returned
+        Portal->>Portal: Store capture in session
+        Portal-->>Client: {success: true, captureId: 42}
+    else No face detected
+        FaceEngine-->>Portal: No face found
+        Portal-->>Client: {success: false, error: "No face detected"}
+    end
+    
+    Client->>Portal: POST /login {rollNumber, password, faceCaptureId}
+    Portal->>DB: Verify student credentials
+    Portal->>DB: Verify face capture exists & is recent
+    DB-->>Portal: Student + capture validated
+    Portal->>Portal: Store student in session
+    Portal->>Client: Redirect to /mark-attendance
+    
+    Client->>Portal: GET /mark-attendance
+    Portal->>Client: Show confirmation page
+    
+    Client->>Portal: POST /mark-attendance
+    Portal->>DB: Check for duplicate attendance
+    Portal->>DB: INSERT attendance (student_id, face_capture_id, timestamp)
+    DB-->>Portal: Attendance recorded
+    Portal->>Firewall: Grant internet access for client IP
+    Firewall-->>Portal: Rule created
+    Portal->>Client: Redirect to /success
+    
+    Client->>Portal: GET /success
+    Portal->>Client: Show success message
+```
 
-  <line x1="80" y1="40" x2="300" y2="40" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow2)"/>
-  <text x="180" y="56">HTTP request -> redirected to /verify</text>
+### Face Capture Workflow Detail
 
-  <line x1="300" y1="80" x2="300" y2="120" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arrow2)"/>
-  <text x="312" y="100">User enters code -> /verify (POST)</text>
+```mermaid
+flowchart TD
+    Start([Student on Login Page]) --> CheckCamera{Camera<br/>Available?}
+    CheckCamera -->|No| ShowError[Show Error:<br/>Camera not supported]
+    CheckCamera -->|Yes| EnterRoll[Enter Roll Number]
+    
+    EnterRoll --> ClickCapture[Click 'Capture face' button]
+    ClickCapture --> RequestPerm[Request camera permission]
+    
+    RequestPerm --> PermGranted{Permission<br/>Granted?}
+    PermGranted -->|No| ShowCamError[Show Error:<br/>Camera access denied]
+    PermGranted -->|Yes| StartStream[Start video stream]
+    
+    StartStream --> CaptureFrame[Capture frame from video]
+    CaptureFrame --> SendToAPI[POST /api/face-capture<br/>with base64 image data]
+    
+    SendToAPI --> ServerValidate[Server: Decode image]
+    ServerValidate --> RunDetector[Run OpenCV face detector]
+    
+    RunDetector --> FaceFound{Face<br/>Detected?}
+    FaceFound -->|No| ShowFaceError[Show Error:<br/>No face detected]
+    FaceFound -->|Yes| SaveImage[Save image to data/faces/]
+    
+    SaveImage --> LogDB[Log to face_captures table]
+    LogDB --> StoreSession[Store capture ID in session]
+    StoreSession --> ShowSuccess[Show Success:<br/>Face detected and saved]
+    
+    ShowSuccess --> EnableLogin[Enable Sign In button]
+    EnableLogin --> SubmitLogin[Submit login form]
+    
+    ShowError --> End([Cannot proceed])
+    ShowCamError --> End
+    ShowFaceError --> Retry{Retry?}
+    Retry -->|Yes| ClickCapture
+    Retry -->|No| End
+    
+    SubmitLogin --> ValidateCapture{Face capture<br/>recent?}
+    ValidateCapture -->|No| ExpiredError[Error: Capture expired]
+    ValidateCapture -->|Yes| ProceedAttendance[Proceed to attendance]
+    
+    ExpiredError --> End
+    ProceedAttendance --> Success([Attendance Flow])
+    
+    style Start fill:#d1fae5
+    style Success fill:#d1fae5
+    style ShowError fill:#fecaca
+    style ShowCamError fill:#fecaca
+    style ShowFaceError fill:#fecaca
+    style ExpiredError fill:#fecaca
+    style SaveImage fill:#bfdbfe
+    style LogDB fill:#bfdbfe
+```
 
-  <line x1="300" y1="140" x2="620" y2="140" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow2)"/>
-  <text x="420" y="156">Server verifies & stores code/session</text>
+## Additional diagrams
 
-  <line x1="80" y1="100" x2="300" y2="100" stroke="#94a3b8" stroke-width="1.2" marker-end="url(#arrow2)"/>
-  <text x="120" y="116">Client shows login + face capture UI</text>
+### Data flow diagram
 
-  <defs>
-    <marker id="arrow2" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
-      <path d="M0,0 L8,4 L0,8 Z" fill="#94a3b8"/>
-    </marker>
-  </defs>
-</svg>
+```mermaid
+flowchart LR
+    A[Student Device] -->|1. Any HTTP request| B[DNS Server]
+    B -->|2. Redirect to portal| C[Flask Portal]
+    C -->|3. Verify code| D[(Session Store)]
+    D -->|4. Code valid| E[Login Page]
+    E -->|5. Capture request| F[Device Camera]
+    F -->|6. Image data| G[Face Detector]
+    G -->|7. Validation| H[(SQLite DB)]
+    H -->|8. Face capture logged| I[Mark Attendance]
+    I -->|9. Record attendance| H
+    H -->|10. Sync to cloud| J[(Firebase)]
+    I -->|11. Grant access| K[Windows Firewall]
+    K -->|12. Internet enabled| A
+    J -->|13. Real-time updates| L[Teacher Dashboard]
+    
+    style A fill:#dbeafe
+    style F fill:#fef3c7
+    style G fill:#fbbf24
+    style H fill:#e0e7ff
+    style J fill:#fce7f3
+    style L fill:#d1fae5
+```
+
+### Database schema (ER diagram)
+
+```mermaid
+erDiagram
+    STUDENTS ||--o{ FACE_CAPTURES : has
+    STUDENTS ||--o{ ATTENDANCE : records
+    FACE_CAPTURES ||--o| ATTENDANCE : validates
+    ATTENDANCE_CODES ||--o{ ATTENDANCE : authorizes
+    
+    STUDENTS {
+        int id PK
+        string roll_number UK
+        string name
+        string password_hash
+        timestamp created_at
+    }
+    
+    FACE_CAPTURES {
+        int id PK
+        int student_id FK
+        string image_path
+        int detected_faces
+        timestamp captured_at
+    }
+    
+    ATTENDANCE {
+        int id PK
+        int student_id FK
+        int code_id FK
+        int face_capture_id FK
+        string ip_address
+        timestamp marked_at
+    }
+    
+    ATTENDANCE_CODES {
+        int id PK
+        string code UK
+        timestamp expires_at
+        boolean active
+    }
+```
+
+### Attendance state machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unverified
+    Unverified --> CodeEntered : Enter attendance code
+    CodeEntered --> CodeValidating : Submit code
+    CodeValidating --> CodeInvalid : Code expired/wrong
+    CodeValidating --> Verified : Code valid
+    
+    CodeInvalid --> Unverified : Retry
+    
+    Verified --> AwaitingLogin : Show login form
+    AwaitingLogin --> CapturingFace : Enter roll number
+    CapturingFace --> FaceDetecting : Capture button clicked
+    
+    FaceDetecting --> FaceRejected : No face found
+    FaceDetecting --> FaceCaptured : Face detected
+    
+    FaceRejected --> CapturingFace : Retry capture
+    FaceCaptured --> Authenticating : Submit credentials
+    
+    Authenticating --> AuthFailed : Invalid credentials
+    Authenticating --> Authenticated : Valid login
+    
+    AuthFailed --> AwaitingLogin : Retry
+    
+    Authenticated --> ConfirmingAttendance : Show mark attendance page
+    ConfirmingAttendance --> RecordingAttendance : Confirm button
+    RecordingAttendance --> DuplicateCheck : Check for duplicates
+    
+    DuplicateCheck --> AlreadyMarked : Duplicate found
+    DuplicateCheck --> Recording : No duplicate
+    
+    Recording --> GrantingAccess : Save to database
+    GrantingAccess --> Completed : Firewall rule added
+    
+    AlreadyMarked --> Completed : Show already marked
+    Completed --> [*]
+    
+    note right of FaceCaptured
+        Face image saved to
+        data/faces/ directory
+        Capture ID stored in session
+    end note
+    
+    note right of Recording
+        Links student_id,
+        code_id, and
+        face_capture_id
+    end note
+```
+
+### Deployment architecture
+
+```mermaid
+graph TB
+    subgraph Host["Windows Host Machine"]
+        subgraph Hotspot["Mobile Hotspot"]
+            AP[Access Point<br/>192.168.137.1]
+        end
+        
+        subgraph Services["System Services"]
+            DNS[DNS Service<br/>Port 53<br/>Captive redirect]
+            Portal[Flask Portal<br/>Port 80/8080<br/>Python 3.11+]
+            Firewall[Windows Firewall<br/>Rule manager]
+        end
+        
+        subgraph Storage["Local Storage"]
+            DB[(portal.db<br/>SQLite)]
+            Faces[Face Images<br/>data/faces/]
+            Config[Config Files<br/>JSON]
+        end
+        
+        Portal --> DB
+        Portal --> Faces
+        Portal --> Config
+        Portal --> Firewall
+        DNS --> Portal
+        AP --> DNS
+    end
+    
+    subgraph External["External Clients"]
+        Phone1[📱 Student Phone]
+        Phone2[📱 Student Phone]
+        Laptop[💻 Student Laptop]
+    end
+    
+    subgraph Cloud["Cloud Backend"]
+        FB[(Firebase<br/>Realtime DB)]
+        Dashboard[Teacher Dashboard<br/>React App]
+    end
+    
+    Phone1 --> AP
+    Phone2 --> AP
+    Laptop --> AP
+    Portal -.->|Optional sync| FB
+    Dashboard --> FB
+    
+    style Host fill:#f3f4f6
+    style Hotspot fill:#dbeafe
+    style Services fill:#fef3c7
+    style Storage fill:#e0e7ff
+    style External fill:#d1fae5
+    style Cloud fill:#fce7f3
+```
+
+## Code snippets & usage examples
+
+### Starting the captive portal
+
+```powershell
+# Navigate to captive-portal directory
+cd student-attendance-app\captive-portal
+
+# Activate virtual environment
+.\.venv\Scripts\Activate.ps1
+
+# Install dependencies (first time only)
+pip install -r requirements.txt
+
+# Start the portal (runs on port 80 by default)
+python app.py
+```
+
+### Generating attendance codes programmatically
+
+```python
+# In Python shell or script
+from utils.local_db import get_db_connection
+import secrets
+from datetime import datetime, timedelta
+
+conn = get_db_connection()
+cursor = conn.cursor()
+
+# Generate a random 6-digit code
+code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+
+# Set expiration to 1 hour from now
+expires_at = (datetime.now() + timedelta(hours=1)).isoformat()
+
+# Insert into database
+cursor.execute(
+    "INSERT INTO attendance_codes (code, expires_at, active) VALUES (?, ?, ?)",
+    (code, expires_at, 1)
+)
+conn.commit()
+conn.close()
+
+print(f"Generated code: {code}")
+```
+
+### Querying attendance records
+
+```python
+from utils.local_db import get_db_connection
+
+conn = get_db_connection()
+cursor = conn.cursor()
+
+# Get all attendance records with student info
+cursor.execute("""
+    SELECT 
+        s.roll_number,
+        s.name,
+        a.marked_at,
+        fc.detected_faces,
+        a.ip_address
+    FROM attendance a
+    JOIN students s ON a.student_id = s.id
+    LEFT JOIN face_captures fc ON a.face_capture_id = fc.id
+    ORDER BY a.marked_at DESC
+    LIMIT 10
+""")
+
+for row in cursor.fetchall():
+    print(f"{row[0]} - {row[1]} - {row[2]} - Faces: {row[3]}")
+
+conn.close()
+```
+
+### Face capture API usage (JavaScript)
+
+```javascript
+// Capture face from video stream
+async function captureFaceAndSubmit(videoElement, rollNumber) {
+    const canvas = document.createElement('canvas');
+    canvas.width = videoElement.videoWidth;
+    canvas.height = videoElement.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoElement, 0, 0);
+    
+    // Convert to base64
+    const imageData = canvas.toDataURL('image/jpeg', 0.85);
+    
+    // Send to server
+    const response = await fetch('/api/face-capture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            image: imageData,
+            student_id: rollNumber
+        })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+        console.log('Face captured successfully:', result.capture_id);
+        return result.capture_id;
+    } else {
+        console.error('Face capture failed:', result.error);
+        throw new Error(result.error);
+    }
+}
+```
+
+### Configuring face detection sensitivity
+
+```python
+# In app.py, adjust Haar cascade parameters
+
+# More strict detection (fewer false positives)
+faces = face_cascade.detectMultiScale(
+    gray_img,
+    scaleFactor=1.1,      # Smaller increments (default: 1.3)
+    minNeighbors=6,       # Higher threshold (default: 5)
+    minSize=(60, 60)      # Larger minimum face size
+)
+
+# More lenient detection (catches more faces)
+faces = face_cascade.detectMultiScale(
+    gray_img,
+    scaleFactor=1.4,      # Larger increments
+    minNeighbors=3,       # Lower threshold
+    minSize=(30, 30)      # Smaller minimum face size
+)
+```
 
 ## Setup & Quick Start (concise)
 
