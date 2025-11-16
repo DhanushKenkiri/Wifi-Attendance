@@ -8,6 +8,7 @@ _CODE_KEY = "code_data"
 _STUDENT_KEY = "student_data"
 _ATTENDANCE_KEY = "attendance_data"
 _SESSION_EXPIRY_KEY = "session_expiry"
+_FACE_CAPTURE_KEY = "face_capture"
 
 
 def _utc_now() -> datetime:
@@ -27,7 +28,7 @@ def _touch_session() -> None:
 
 
 def clear_all() -> None:
-    for key in (_CODE_KEY, _STUDENT_KEY, _ATTENDANCE_KEY, _SESSION_EXPIRY_KEY):
+    for key in (_CODE_KEY, _STUDENT_KEY, _ATTENDANCE_KEY, _FACE_CAPTURE_KEY, _SESSION_EXPIRY_KEY):
         session.pop(key, None)
 
 
@@ -56,3 +57,16 @@ def store_attendance_data(data: dict[str, Any]) -> None:
 
 def get_attendance_data() -> Optional[dict[str, Any]]:
     return session.get(_ATTENDANCE_KEY)
+
+
+def store_face_capture(data: dict[str, Any]) -> None:
+    session[_FACE_CAPTURE_KEY] = data
+    _touch_session()
+
+
+def get_face_capture() -> Optional[dict[str, Any]]:
+    return session.get(_FACE_CAPTURE_KEY)
+
+
+def clear_face_capture() -> None:
+    session.pop(_FACE_CAPTURE_KEY, None)

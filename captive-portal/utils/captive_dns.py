@@ -174,6 +174,8 @@ def start_dns_server(
     force_portal_domains: Sequence[str] | None = None,
     upstream_servers: Sequence[str] | None = None,
     log_queries: bool = False,
+    auto_grant: bool = False,
+    grant_url: Optional[str] = None,
 ) -> DNSServerHandle:
     resolver = DNSRedirectResolver(
         portal_ip=portal_ip,
@@ -181,6 +183,8 @@ def start_dns_server(
         force_portal_domains=force_portal_domains,
         upstream_servers=upstream_servers,
         log_queries=log_queries,
+        auto_grant=auto_grant,
+        grant_url=grant_url,
     )
 
     try:

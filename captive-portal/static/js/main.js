@@ -81,12 +81,33 @@
     const form = document.querySelector('#login-form');
     const errorBox = document.querySelector('#login-error');
     const submitButton = form.querySelector('button[type="submit"]');
+    const captureButton = document.querySelector('#capture-button');
+    const rollInput = document.querySelector('#roll-number');
+    const faceInput = document.querySelector('#faceCaptureId');
+    const video = document.querySelector('#face-video');
+    const status = document.querySelector('#capture-status');
+    let mediaStream;
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('Camera not supported on this device.', 'error');
+      captureButton.disabled = true;
+    }
+
+    captureButton?.addEventListener('click', handleCapture);
+    window.addEventListener('beforeunload', stopStream, { once: true });
 
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       errorBox.hidden = true;
       submitButton.disabled = true;
       submitButton.textContent = 'Signing in…';
+
+      if (!faceInput.value) {
+        showError('Capture your face before signing in.');
+        submitButton.disabled = false;
+        submitButton.textContent = 'Sign in and continue';
+        return;
+      }
 
       const data = Object.fromEntries(new FormData(form).entries());
       try {
@@ -112,6 +133,78 @@
     function showError(message) {
       errorBox.textContent = message;
       errorBox.hidden = false;
+      setStatus(message, 'error');
+    }
+
+    function setStatus(message, state) {
+      if (!status) return;
+      status.textContent = message;
+      status.classList.remove('success', 'error');
+      if (state) {
+        status.classList.add(state);
+      }
+    }
+
+    async function handleCapture() {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showError('Camera not available on this device.');
+        return;
+      }
+
+      const rollNumber = rollInput.value.trim().toLowerCase();
+      if (!rollNumber) {
+        showError('Enter your roll number before capturing.');
+        return;
+      }
+
+      try {
+        await startStream();
+        const imageData = captureFrame();
+        setStatus('Detecting face…', null);
+        const response = await fetch('/api/face-capture', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData, studentId: rollNumber })
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) {
+          throw new Error(payload.error || 'Unable to detect face.');
+        }
+        faceInput.value = payload.captureId;
+        setStatus('Face detected and saved.', 'success');
+      } catch (error) {
+        faceInput.value = '';
+        setStatus(error.message || 'Unable to capture face.', 'error');
+        showError(error.message || 'Unable to capture face.');
+      }
+    }
+
+    async function startStream() {
+      if (mediaStream) {
+        return;
+      }
+      mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      if (video) {
+        video.srcObject = mediaStream;
+        await video.play();
+      }
+    }
+
+    function captureFrame() {
+      const canvas = document.createElement('canvas');
+      const width = video?.videoWidth || 640;
+      const height = video?.videoHeight || 480;
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      context.drawImage(video, 0, 0, width, height);
+      return canvas.toDataURL('image/jpeg', 0.92);
+    }
+
+    function stopStream() {
+      if (!mediaStream) return;
+      mediaStream.getTracks().forEach((track) => track.stop());
+      mediaStream = undefined;
     }
   }
 

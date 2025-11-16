@@ -102,6 +102,10 @@ a {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
+.btn.secondary {
+  background: linear-gradient(135deg, var(--accent-500), var(--accent-600));
+}
+
 .btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 24px 40px rgba(13, 148, 136, 0.25);
@@ -168,6 +172,70 @@ a {
   padding: 1rem 1.25rem;
   color: rgba(4, 120, 87, 0.9);
   line-height: 1.6;
+}
+
+.face-capture {
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: 20px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.face-capture__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.face-capture__header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.face-capture__header p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+}
+
+.face-chip {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--error);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.face-video {
+  width: 100%;
+  border-radius: 16px;
+  min-height: 240px;
+  background: #0f172a;
+  object-fit: cover;
+}
+
+.face-capture__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: center;
+}
+
+.face-status {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.face-status.success {
+  color: var(--success);
+}
+
+.face-status.error {
+  color: var(--error);
 }
 
 .table {

@@ -27,6 +27,13 @@
       <td>{{ code_data.teacherName or 'Unknown' }}</td>
     </tr>
   </table>
+  {% if face_capture %}
+  <div class="info-box">
+    <strong>Face verification complete.</strong><br />Captured at {{ face_capture.capturedAt }}.
+  </div>
+  {% else %}
+  <div class="alert">Face verification is required. Please return to the login step if prompted.</div>
+  {% endif %}
   <div id="mark-error" class="alert" hidden></div>
   <button type="button" id="mark-button" class="btn" style="margin-top:2rem;">Confirm attendance</button>
 </section>

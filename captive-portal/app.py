@@ -3,19 +3,29 @@
 from __future__ import annotations
 
 import atexit
+import base64
+import binascii
 import csv
 import hashlib
 import json
 import secrets
 from datetime import datetime, timezone
 from functools import wraps
+from io import StringIO
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from io import StringIO
-
 from flask import Flask, Response, g, jsonify, redirect, render_template, request
+from flask_compress import Compress
 from itsdangerous import BadSignature, BadTimeSignature, SignatureExpired, URLSafeTimedSerializer
+
+try:
+    import cv2  # type: ignore
+    import numpy as np  # type: ignore
+except Exception as exc:  # pragma: no cover - best effort import
+    cv2 = None
+    np = None
+    print(f"[Face Capture] OpenCV disabled: {exc}")
 
 from utils import captive_dns, firewall, firebase_client, local_db, session_manager
 
@@ -66,8 +76,41 @@ if _CAPTIVE_DNS_CONFIG.get("enabled"):
         print(f"[Captive DNS] Disabled: {exc}")
 DEFAULT_STUDENT_PASSWORD = "sest@2024"
 
+_FACE_CAPTURE_SETTINGS = NETWORK_CONFIG.get("face_capture", {}) or {}
+_FACE_CAPTURE_DIR = (_BASE_DIR / "data" / "faces").resolve()
+_FACE_CAPTURE_MAX_AGE_SECONDS = int(_FACE_CAPTURE_SETTINGS.get("max_age_seconds", 300))
+_FACE_DETECTOR = None
+_FACE_CAPTURE_AVAILABLE = False
+if cv2 is not None and np is not None:
+    try:
+        cascade_root = getattr(getattr(cv2, "data", None), "haarcascades", None)
+        if cascade_root:
+            cascade_path = Path(cascade_root) / "haarcascade_frontalface_default.xml"
+            if cascade_path.exists():
+                detector = cv2.CascadeClassifier(str(cascade_path))
+                if not detector.empty():
+                    _FACE_DETECTOR = detector
+                    _FACE_CAPTURE_AVAILABLE = True
+    except Exception as exc:  # pragma: no cover - hardware dependent
+        print(f"[Face Capture] Detector unavailable: {exc}")
+
 app = Flask(__name__)
 app.secret_key = _APP_SECRET if _APP_SECRET != "change-me-in-production" else secrets.token_hex(32)
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 86400  # cache static assets for a day
+app.config["TEMPLATES_AUTO_RELOAD"] = False
+app.config["JSONIFY_PRETTYPRINT_REGULAR"] = False
+app.config["JSON_SORT_KEYS"] = False
+app.config["COMPRESS_MIMETYPES"] = (
+    "text/html",
+    "text/css",
+    "text/xml",
+    "application/json",
+    "application/javascript",
+    "text/javascript",
+    "application/octet-stream",
+)
+app.config["COMPRESS_LEVEL"] = int(NETWORK_CONFIG.get("performance", {}).get("compress_level", 6))
+Compress(app)
 session_manager.configure_session(
     app,
     lifetime_minutes=int(NETWORK_CONFIG.get("session", {}).get("lifetime_minutes", 180)),
@@ -92,6 +135,59 @@ def _decode_teacher_token(token: str) -> Optional[Dict[str, Any]]:
         return _token_serializer.loads(token, max_age=_AUTH_TOKEN_TTL_SECONDS)
     except (BadSignature, BadTimeSignature, SignatureExpired):
         return None
+
+
+def _decode_image_payload(image_payload: str) -> bytes:
+    if "," in image_payload:
+        image_payload = image_payload.split(",", 1)[1]
+    image_payload = image_payload.strip()
+    padding = len(image_payload) % 4
+    if padding:
+        image_payload += "=" * (4 - padding)
+    try:
+        return base64.b64decode(image_payload, validate=True)
+    except (ValueError, binascii.Error) as exc:  # type: ignore[name-defined]
+        raise ValueError("Invalid image data supplied.") from exc
+
+
+def _save_face_capture(student_id: str, image_bytes: bytes) -> Dict[str, Any]:
+    if not _FACE_CAPTURE_AVAILABLE or not _FACE_DETECTOR or not cv2 or not np:
+        raise RuntimeError("Face detection engine is not available on this device.")
+
+    np_buffer = np.frombuffer(image_bytes, dtype=np.uint8)
+    image = cv2.imdecode(np_buffer, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("Unable to read captured frame. Please retry.")
+
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    faces = _FACE_DETECTOR.detectMultiScale(gray, scaleFactor=1.15, minNeighbors=5, minSize=(90, 90))
+    if faces is None or len(faces) == 0:
+        raise ValueError("No face detected. Ensure good lighting and stay within frame.")
+
+    timestamp_suffix = datetime.now(tz=timezone.utc).strftime("%Y%m%d%H%M%S")
+    filename = f"{student_id}_{timestamp_suffix}.jpg"
+    _FACE_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = _FACE_CAPTURE_DIR / filename
+    if not cv2.imwrite(str(file_path), image):
+        raise RuntimeError("Unable to persist face capture. Retry in a moment.")
+
+    record = local_db.log_face_capture(_SQLITE_DB_PATH, student_id, str(file_path), len(faces))
+    record.setdefault("image_path", str(file_path))
+    return record
+
+
+def _face_capture_is_recent(face_data: Optional[dict[str, Any]]) -> bool:
+    if not face_data:
+        return False
+    captured_at = face_data.get("capturedAt")
+    if not captured_at:
+        return False
+    try:
+        captured_time = datetime.fromisoformat(captured_at)
+    except ValueError:
+        return False
+    age_seconds = (datetime.now(tz=timezone.utc) - captured_time).total_seconds()
+    return age_seconds <= _FACE_CAPTURE_MAX_AGE_SECONDS
 
 
 def require_teacher_auth(func):
@@ -168,6 +264,13 @@ def add_cors_headers(response):
     return response
 
 
+@app.after_request
+def add_performance_headers(response):
+    if request.path.startswith("/static/"):
+        response.headers.setdefault("Cache-Control", "public, max-age=86400, immutable")
+    return response
+
+
 def _serialise_teacher(teacher: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": teacher.get("id"),
@@ -209,6 +312,7 @@ def _serialise_attendance_record(record: Dict[str, Any]) -> Dict[str, Any]:
         "department": record.get("department"),
         "markedVia": record.get("marked_via"),
         "deviceFingerprint": record.get("device_fingerprint"),
+        "faceCaptureId": record.get("face_capture_id"),
     }
 
 
@@ -292,6 +396,8 @@ def login():
     if request.method == "POST":
         payload = request.get_json(silent=True) or {}
         password = str(payload.get("password", "")).strip()
+        face_capture_id = payload.get("faceCaptureId")
+        face_capture_data = session_manager.get_face_capture()
 
         if _USING_SQLITE:
             roll_number = (
@@ -355,6 +461,30 @@ def login():
                 }
             )
 
+        if _USING_SQLITE:
+            if not face_capture_id or not face_capture_data:
+                return jsonify({"success": False, "error": "Face verification is required before continuing."}), 403
+
+            if str(face_capture_data.get("captureId")) != str(face_capture_id):
+                return jsonify({"success": False, "error": "Face capture mismatch. Please recapture."}), 403
+
+            student_session = session_manager.get_student_data() or {}
+            if face_capture_data.get("studentId") != student_session.get("studentId"):
+                return jsonify({"success": False, "error": "Face capture belongs to a different user."}), 403
+
+            if not _face_capture_is_recent(face_capture_data):
+                session_manager.clear_face_capture()
+                return jsonify({"success": False, "error": "Face capture expired. Capture again."}), 403
+
+            try:
+                capture_record = local_db.get_face_capture(_SQLITE_DB_PATH, face_capture_data.get("captureId"))
+            except local_db.LocalDatabaseError as exc:
+                return jsonify({"success": False, "error": str(exc)}), 500
+
+            if not capture_record:
+                session_manager.clear_face_capture()
+                return jsonify({"success": False, "error": "Face capture not found. Capture again."}), 400
+
         return jsonify({"success": True})
 
     return render_template("login.html", code_data=code_data)
@@ -364,11 +494,32 @@ def login():
 def mark_attendance():
     code_data = session_manager.get_code_data()
     student = session_manager.get_student_data()
+    face_capture_data = session_manager.get_face_capture()
     if not code_data or not student:
         session_manager.clear_all()
         return redirect("/verify")
 
     if request.method == "POST":
+        capture_record = None
+        if _USING_SQLITE:
+            if not face_capture_data:
+                return jsonify({"success": False, "error": "Face verification is required before marking attendance."}), 403
+            if face_capture_data.get("studentId") != student.get("studentId"):
+                return jsonify({"success": False, "error": "Face capture belongs to a different roll number."}), 403
+            if not _face_capture_is_recent(face_capture_data):
+                session_manager.clear_face_capture()
+                return jsonify({"success": False, "error": "Face capture expired. Capture again from the login page."}), 403
+            capture_id = face_capture_data.get("captureId")
+            if not capture_id:
+                return jsonify({"success": False, "error": "Face capture missing. Capture again."}), 400
+            try:
+                capture_record = local_db.get_face_capture(_SQLITE_DB_PATH, capture_id)
+            except local_db.LocalDatabaseError as exc:
+                return jsonify({"success": False, "error": str(exc)}), 500
+            if not capture_record:
+                session_manager.clear_face_capture()
+                return jsonify({"success": False, "error": "Face capture not found. Capture again."}), 400
+
         today = datetime.now(tz=timezone.utc).date().isoformat()
         try:
             if _USING_SQLITE:
@@ -413,6 +564,12 @@ def mark_attendance():
             "deviceFingerprint": fingerprint,
         }
 
+        if capture_record:
+            attendance_payload["faceCaptureId"] = capture_record.get("id")
+            attendance_payload["faceCapturePath"] = capture_record.get("image_path")
+        elif face_capture_data:
+            attendance_payload["faceCaptureId"] = face_capture_data.get("captureId")
+
         try:
             if _USING_SQLITE:
                 local_db.mark_attendance(
@@ -432,9 +589,15 @@ def mark_attendance():
             firewall.grant_internet_access(request.remote_addr, student["studentId"], rule_prefix)
 
         session_manager.store_attendance_data(attendance_payload)
+        session_manager.clear_face_capture()
         return jsonify({"success": True, "data": attendance_payload})
 
-    return render_template("mark-attendance.html", student=student, code_data=code_data)
+    return render_template(
+        "mark-attendance.html",
+        student=student,
+        code_data=code_data,
+        face_capture=face_capture_data if _face_capture_is_recent(face_capture_data) else None,
+    )
 
 
 @app.route("/success")
@@ -448,6 +611,50 @@ def success():
 @app.route("/api/client-ip")
 def client_ip():
     return jsonify({"ip": request.remote_addr})
+
+
+@app.route("/api/face-capture", methods=["POST"])
+def api_face_capture():
+    if not _USING_SQLITE:
+        return jsonify({"success": False, "error": "Face capture requires the SQLite data source."}), 400
+    if not _FACE_CAPTURE_AVAILABLE:
+        return jsonify({"success": False, "error": "Face detection libraries are not installed on the server."}), 500
+
+    payload = request.get_json(silent=True) or {}
+    student_id = str(payload.get("studentId", "")).strip().lower()
+    image_payload = payload.get("imageData")
+
+    if not student_id:
+        return jsonify({"success": False, "error": "Student roll number is required."}), 400
+    if not image_payload:
+        return jsonify({"success": False, "error": "Image data missing from request."}), 400
+
+    try:
+        student = local_db.fetch_student(_SQLITE_DB_PATH, student_id)
+    except local_db.LocalDatabaseError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+    if not student:
+        return jsonify({"success": False, "error": "Student not found."}), 404
+
+    try:
+        image_bytes = _decode_image_payload(image_payload)
+        record = _save_face_capture(student_id, image_bytes)
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+    session_manager.store_face_capture(
+        {
+            "captureId": record.get("id"),
+            "studentId": student_id,
+            "imagePath": record.get("image_path"),
+            "capturedAt": record.get("created_at", datetime.now(tz=timezone.utc).isoformat()),
+        }
+    )
+
+    return jsonify({"success": True, "captureId": record.get("id")})
 
 
 @app.route("/api/grant-access", methods=["POST"])

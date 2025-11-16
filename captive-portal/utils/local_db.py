@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS attendance (
 	marked_via TEXT,
 	email TEXT,
 	name TEXT,
-	UNIQUE(class_id, student_id, date)
+	device_fingerprint TEXT,
+	face_capture_id INTEGER,
+	UNIQUE(class_id, student_id, date),
+	FOREIGN KEY (face_capture_id) REFERENCES face_captures(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS teachers (
@@ -72,6 +75,15 @@ CREATE TABLE IF NOT EXISTS timetable (
 	updated_at TEXT NOT NULL,
 	FOREIGN KEY (teacher_id) REFERENCES teachers(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS face_captures (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	student_id TEXT NOT NULL,
+	image_path TEXT NOT NULL,
+	detected_faces INTEGER NOT NULL,
+	created_at TEXT NOT NULL,
+	FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
+);
 """
 
 _OPTIONAL_COLUMNS: Dict[str, Dict[str, str]] = {
@@ -92,6 +104,7 @@ _OPTIONAL_COLUMNS: Dict[str, Dict[str, str]] = {
 		"email": "TEXT",
 		"name": "TEXT",
 		"device_fingerprint": "TEXT",
+		"face_capture_id": "INTEGER",
 	},
 }
 
@@ -154,6 +167,9 @@ def _ensure_indexes(conn: sqlite3.Connection) -> None:
 	)
 	conn.execute(
 		"CREATE INDEX IF NOT EXISTS idx_timetable_teacher_day ON timetable(teacher_id, day)"
+	)
+	conn.execute(
+		"CREATE INDEX IF NOT EXISTS idx_face_captures_student ON face_captures(student_id, created_at)"
 	)
 
 
@@ -412,6 +428,53 @@ def load_existing_attendance(db_path: Path, class_id: str, student_id: str) -> O
 		raise LocalDatabaseError(str(err)) from err
 
 
+def log_face_capture(db_path: Path, student_id: str, image_path: str, detected_faces: int) -> Dict[str, Any]:
+	db_path = Path(db_path)
+	try:
+		with _connect(db_path) as conn:
+			_ensure_schema(conn)
+			cursor = conn.execute(
+				"""
+				INSERT INTO face_captures (student_id, image_path, detected_faces, created_at)
+				VALUES (?, ?, ?, ?)
+				""",
+				(
+					student_id.strip().lower(),
+					image_path,
+					detected_faces,
+					datetime.now(tz=timezone.utc).isoformat(),
+				),
+			)
+			conn.commit()
+			capture_id = cursor.lastrowid
+			row = conn.execute(
+				"SELECT * FROM face_captures WHERE id = ?",
+				(capture_id,),
+			).fetchone()
+			return dict(row) if row else {
+				"id": capture_id,
+				"student_id": student_id.strip().lower(),
+				"image_path": image_path,
+				"detected_faces": detected_faces,
+			}
+	except sqlite3.Error as err:
+		raise LocalDatabaseError(str(err)) from err
+
+
+def get_face_capture(db_path: Path, capture_id: int) -> Optional[Dict[str, Any]]:
+	db_path = Path(db_path)
+	try:
+		with _connect(db_path) as conn:
+			_ensure_schema(conn)
+			row = conn.execute(
+				"SELECT * FROM face_captures WHERE id = ?",
+				(int(capture_id),),
+			).fetchone()
+			return dict(row) if row else None
+	except sqlite3.Error as err:
+		raise LocalDatabaseError(str(err)) from err
+
+
 def mark_attendance(db_path: Path, class_id: str, student_id: str, payload: Dict[str, Any]) -> None:
 	db_path = Path(db_path)
 	try:
@@ -429,7 +492,7 @@ def mark_attendance(db_path: Path, class_id: str, student_id: str, payload: Dict
 				"""
 				INSERT INTO attendance (
 					class_id, student_id, timestamp, marked_at, date, subject, code,
-					manual_entry, teacher_name, department, marked_via, email, name, device_fingerprint
+					manual_entry, teacher_name, department, marked_via, email, name, device_fingerprint, face_capture_id
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 				""",
 				(
@@ -447,6 +510,7 @@ def mark_attendance(db_path: Path, class_id: str, student_id: str, payload: Dict
 					payload.get("email"),
 					payload.get("name"),
 					fingerprint or None,
+					payload.get("faceCaptureId"),
 				),
 			)
 			conn.commit()

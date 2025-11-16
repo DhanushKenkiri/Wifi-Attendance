@@ -21,6 +21,21 @@
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required />
     </div>
+    <div class="face-capture">
+      <div class="face-capture__header">
+        <div>
+          <h2>Face verification</h2>
+          <p>Please allow camera access and capture a clear photo before signing in.</p>
+        </div>
+        <span class="face-chip">Required</span>
+      </div>
+      <video id="face-video" class="face-video" autoplay playsinline muted></video>
+      <div class="face-capture__actions">
+        <button type="button" class="btn secondary" id="capture-button">Capture face</button>
+        <span id="capture-status" class="face-status">Awaiting capture…</span>
+      </div>
+    </div>
+    <input type="hidden" name="faceCaptureId" id="faceCaptureId" />
     <div id="login-error" class="alert" hidden></div>
     <button type="submit" class="btn">Sign in and continue</button>
   </form>

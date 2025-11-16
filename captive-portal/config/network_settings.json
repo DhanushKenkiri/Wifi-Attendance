@@ -2,11 +2,11 @@
   "host": "0.0.0.0",
   "portal_ip": "192.168.137.1",
   "port": 8080,
-  "debug": true,
+  "debug": false,
   "use_reloader": false,
   "force_https": false,
   "firewall": {
-    "enabled": true,
+    "enabled": false,
     "rule_prefix": "UniNetAttendance"
   },
   "data_source": "sqlite",
@@ -32,7 +32,7 @@
     "firebase.google.com"
   ],
   "captive_dns": {
-    "enabled": true,
+    "enabled": false,
     "listen_address": "0.0.0.0",
     "listen_port": 53,
     "portal_ip": "192.168.137.1",
